@@ -17,6 +17,9 @@ const Path = require('path');
 
 const SELFCONFIG = require('./config');
 
+// 临时存放目录信息
+let catalogTmp = '';
+
 function headConfig() {
     return {
         'Access-Control-Allow-Methods': 'GET, POST',
@@ -29,11 +32,29 @@ function fileCheck() {
 
 }
 
+function fileW(path, dataInfo, option){
+    let tmpPath = Path.resolve(SELFCONFIG.static, path);
+    return Util.promisify(Fs.writeFile)(path, dataInfo, option);
+}
+
+/**
+ * 文件读取， 对fs.readFile 进行封装
+ * @param path
+ * @param option
+ * @returns {*}
+ */
+function fileR(path, option){
+    let tmpPath = Path.resolve(SELFCONFIG.static, path);
+    return Util.promisify(Fs.readFile)(tmpPath, option);
+}
+
 /**
  * 相对于SELFCONFIG.static路径的文件读取
- * @param {*} path 
+ * @param path
+ * @param flags
+ * @returns {Promise}
  */
-function fileR(path, flags = 'w+') {
+function fileOpen(path, flags = 'w+') {
     let tmpPath = Path.resolve(SELFCONFIG.static, path);
     return new Promise( (resolve, reject) => {
         Fs.open(tmpPath, flags, (err, fs) =>{
@@ -47,27 +68,40 @@ function fileR(path, flags = 'w+') {
 }
 
 function findFile(md5){
-    return fileR(SELFCONFIG.catalog)
-    .then( (data) => {
-        console.log('find the catalog.json', data);
-        return Util.promisify(Fs.readFile)(data)
-    })
-    .then( (data)=>{
-        if(data.length){
-            try{
-                let dataTmp = JSON.parse(data.toString());
-                console.log('this is catalog content :', dataTmp);
-                return dataTmp[md5];
-            }catch(e){
-                console.error('json parse buffer data error', data.toString(), e);
+    // 如果存在临时目录信息
+    if(catalogTmp){
+        return Promise.resolve(catalogTmp[md5] || '');
+    }
+    let fdTmp = '';
+    // 不存在的情况下，读入目录信息
+    return fileOpen(SELFCONFIG.catalog)
+        .then( (data) => {
+            console.log('find the catalog.json', data);
+            fdTmp = data;
+            return Util.promisify(Fs.readFile)(fdTmp)
+        })
+        .then( (data)=>{
+            if(data.length){
+                try{
+                    catalogTmp = JSON.parse(data.toString());
+                    console.log('this is catalog content :', dataTmp);
+                    return catalogTmp[md5];
+                }catch(e){
+                    console.error('json parse buffer data error', data.toString(), e);
+                }
+            } else {
+                console.log('file not found');
             }
-        } else {
-            console.log('file not found');
-        }
-    })
-    .catch((err)=>{
-        console.error('find the findFile error', err);
-    })
+        })
+        .catch((err)=>{
+            console.error('find the findFile error', err);
+        })
+        .finally(()=>{
+            console.log('start ')
+            Fs.close(fdTmp, (err)=>{
+                console.error('close catalog file error', err);
+            })
+        })
 }
 
 /**
@@ -111,7 +145,7 @@ function postFn(req, res){
             let objTmp = {
                code: 2,
                msg: e
-            }
+            };
             res.end(Util.inspect(objTmp));
             // todo 记录到日志里
         })
