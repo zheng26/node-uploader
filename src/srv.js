@@ -43,11 +43,11 @@ function fileCheck() {
  * @param fn
  * @returns {function(...[*]=)}
  */
-function selfPromisify(fn){
-    return (...args)=>{
-        return new Promise((resolve, reject)=>{
-            fn(...args, (err, data)=>{
-                if(err){
+function selfPromisify(fn) {
+    return (...args) => {
+        return new Promise((resolve, reject) => {
+            fn(...args, (err, data) => {
+                if (err) {
                     reject(data);
                 } else {
                     resolve(data);
@@ -149,48 +149,75 @@ function optionFn(req, res) {
  */
 function postFn(req, res) {
     let params = Url.parse(decodeURIComponent(req.url), true).query;
-    let post = '';
-    req.on('data', (chunk) => {
-        post += chunk;
-    });
-    req.on('end', () => {
-        let postData = QueryString.parse(post);
+    let formTmp = new Formidable.IncomingForm();
+    formTmp.keepExtensions = true;
+    formTmp.encoding = 'binary';
+    formTmp.uploadDir = SELFCONFIG.static;
+  
+    formTmp.parse(req, (err, fields, files) => {
+        console.log('this is formTmp parse cb', files);
         res.writeHead(200, headConfig());
-        findFile(params.md5)
-            .then((data) => {
-                // md5未作校验
-                if (data) {
-                    console.log('the file already exited');
-                } else {
-                    let curFilePath = Path.resolve(SELFCONFIG.static, '.', params.name);
-                    if (!catalogTmp) {
-                        catalogTmp = {};
-                    }
-                    catalogTmp[params.md5] = {
-                        curFile: curFilePath
-                    };
-                    let formTmp = new Formidable.IncomingForm();
-                    return fileW(curFilePath, post, {encoding : 'binary'});
-                }
-            })
-            .then(() => {
+        if(err){
+            console.error('post parse body data received error: ', err);
+            let dataTmp = {
+                code: 1,
+                msg: err
+            };
+            res.end(JSON.stringify(dataTmp));
+        } else {
+            Util.promisify(Fs.rename)(files.file.path, Path.resolve(SELFCONFIG.static, params.name))
+            .then( err=>{
                 let resData = {
                     code: 0,
                     data: {
                         id: params.md5
                     }
                 };
-                res.end(JSON.stringify(resData))
+                res.end(JSON.stringify(resData));
             })
-            .catch((e) => {
-                let objTmp = {
-                    code: 2,
-                    msg: e
-                };
-                res.end(JSON.stringify(objTmp));
-                // todo 记录到日志里
-            })
-    })
+        }
+    });
+    // let post = '';
+    // req.on('data', (chunk) => {
+    //     post += chunk;
+    // });
+    // req.on('end', () => {
+    //     let postData = QueryString.parse(post);
+    //     res.writeHead(200, headConfig());
+    //     findFile(params.md5)
+    //         .then((data) => {
+    //             // md5未作校验
+    //             if (data) {
+    //                 console.log('the file already exited');
+    //             } else {
+    //                 let curFilePath = Path.resolve(SELFCONFIG.static, '.', params.name);
+    //                 if (!catalogTmp) {
+    //                     catalogTmp = {};
+    //                 }
+    //                 catalogTmp[params.md5] = {
+    //                     curFile: curFilePath
+    //                 };
+    //                 return fileW(curFilePath, post, {encoding : 'binary'});
+    //             }
+    //         })
+    //         .then(() => {
+    //             let resData = {
+    //                 code: 0,
+    //                 data: {
+    //                     id: params.md5
+    //                 }
+    //             };
+    //             res.end(JSON.stringify(resData))
+    //         })
+    //         .catch((e) => {
+    //             let objTmp = {
+    //                 code: 2,
+    //                 msg: e
+    //             };
+    //             res.end(JSON.stringify(objTmp));
+    //             // todo 记录到日志里
+    //         })
+    // })
 }
 
 function srvStart() {
@@ -214,7 +241,7 @@ function srvStart() {
 
 function init() {
     // 版本的处理
-    if(!Util.promisify){
+    if (!Util.promisify) {
         Util.promisify = selfPromisify;
     }
     // 引入加密库
