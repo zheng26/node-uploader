@@ -14,27 +14,32 @@ const QueryString = require('querystring');
 const Util = require('util');
 const Fs = require('fs');
 const Path = require('path');
-
 const SELFCONFIG = require('./config');
 
 // 临时存放目录信息
 let catalogTmp = '';
+// 加密库
+let Crypto;
 
 function headConfig() {
     return {
         'Access-Control-Allow-Methods': 'GET, POST',
-        'Access-Control-Allow-Origin' : '*',
+        'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Origin'
     }
+}
+
+function calcMD5() {
+
 }
 
 function fileCheck() {
 
 }
 
-function fileW(path, dataInfo, option){
+function fileW(path, dataInfo, option) {
     let tmpPath = Path.resolve(SELFCONFIG.static, path);
-    return Util.promisify(Fs.writeFile)(path, dataInfo, option);
+    return Util.promisify(Fs.writeFile)(tmpPath, dataInfo, option);
 }
 
 /**
@@ -43,7 +48,7 @@ function fileW(path, dataInfo, option){
  * @param option
  * @returns {*}
  */
-function fileR(path, option){
+function fileR(path, option) {
     let tmpPath = Path.resolve(SELFCONFIG.static, path);
     return Util.promisify(Fs.readFile)(tmpPath, option);
 }
@@ -56,9 +61,9 @@ function fileR(path, option){
  */
 function fileOpen(path, flags = 'w+') {
     let tmpPath = Path.resolve(SELFCONFIG.static, path);
-    return new Promise( (resolve, reject) => {
-        Fs.open(tmpPath, flags, (err, fs) =>{
-            if(!err){
+    return new Promise((resolve, reject) => {
+        Fs.open(tmpPath, flags, (err, fs) => {
+            if (!err) {
                 resolve(fs);
             } else {
                 reject(err);
@@ -67,40 +72,42 @@ function fileOpen(path, flags = 'w+') {
     })
 }
 
-function findFile(md5){
+function findFile(md5) {
     // 如果存在临时目录信息
-    if(catalogTmp){
+    if (catalogTmp) {
         return Promise.resolve(catalogTmp[md5] || '');
     }
     let fdTmp = '';
     // 不存在的情况下，读入目录信息
     return fileOpen(SELFCONFIG.catalog)
-        .then( (data) => {
+        .then((data) => {
             console.log('find the catalog.json', data);
             fdTmp = data;
             return Util.promisify(Fs.readFile)(fdTmp)
         })
-        .then( (data)=>{
-            if(data.length){
-                try{
+        .then((data) => {
+            if (data.length) {
+                try {
                     catalogTmp = JSON.parse(data.toString());
                     console.log('this is catalog content :', dataTmp);
                     return catalogTmp[md5];
-                }catch(e){
+                } catch (e) {
                     console.error('json parse buffer data error', data.toString(), e);
                 }
             } else {
                 console.log('file not found');
             }
         })
-        .catch((err)=>{
+        .catch((err) => {
             console.error('find the findFile error', err);
+            return;
         })
-        .finally(()=>{
-            console.log('start ')
-            Fs.close(fdTmp, (err)=>{
+        .then((data) => {
+            console.log('start close catalog')
+            Fs.close(fdTmp, (err) => {
                 console.error('close catalog file error', err);
             })
+            return data;
         })
 }
 
@@ -109,7 +116,7 @@ function findFile(md5){
  * @param {*} req 
  * @param {*} res 
  */
-function getFn(req, res){
+function getFn(req, res) {
 
 }
 
@@ -118,7 +125,7 @@ function getFn(req, res){
  * @param {*} req 
  * @param {*} res 
  */
-function optionFn(req, res){
+function optionFn(req, res) {
     res.writeHead(200, headConfig());
     res.end();
 }
@@ -128,27 +135,48 @@ function optionFn(req, res){
  * @param {*} req 
  * @param {*} res 
  */
-function postFn(req, res){
-    let params = Url.parse(req.url, true).query;
+function postFn(req, res) {
+    let params = Url.parse(decodeURIComponent(req.url), true).query;
     let post = '';
     req.on('data', (chunk) => {
         post += chunk;
     });
-    req.on('end', ()=>{
+    req.on('end', () => {
         let postData = QueryString.parse(post);
         res.writeHead(200, headConfig());
         findFile(params.md5)
-        .then((data)=>{
-            
-        })
-        .catch((e)=>{
-            let objTmp = {
-               code: 2,
-               msg: e
-            };
-            res.end(Util.inspect(objTmp));
-            // todo 记录到日志里
-        })
+            .then((data) => {
+                // md5未作校验
+                if (data) {
+                    console.log('the file already exited');
+                } else {
+                    let curFilePath = Path.resolve(SELFCONFIG.static, '.', params.name);
+                    if (!catalogTmp) {
+                        catalogTmp = {};
+                    }
+                    catalogTmp[params.md5] = {
+                        curFile: curFilePath
+                    }
+                    return fileW(curFilePath, post, {encoding : 'binary'});
+                }
+            })
+            .then(() => {
+                let resData = {
+                    code: 0,
+                    data: {
+                        id: params.md5
+                    }
+                }
+                res.end(JSON.stringify(resData))
+            })
+            .catch((e) => {
+                let objTmp = {
+                    code: 2,
+                    msg: e
+                };
+                res.end(JSON.stringify(objTmp));
+                // todo 记录到日志里
+            })
     })
 }
 
@@ -167,12 +195,18 @@ function srvStart() {
                 getFn(request, response);
                 break;
         }
-        
+
     }).listen(SELFCONFIG.srvPort, SELFCONFIG.srvUrl);
 }
 
 function init() {
-    if(!Fs.existsSync(SELFCONFIG.static)){
+    // 引入加密库
+    try {
+        Crypto = require('crypto');
+    } catch (e) {
+        console.error(e);
+    }
+    if (!Fs.existsSync(SELFCONFIG.static)) {
         console.log('static catalog create', SELFCONFIG.static);
         Fs.mkdirSync(SELFCONFIG.static);
     }
