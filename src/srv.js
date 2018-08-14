@@ -1,6 +1,6 @@
-const Koa = require('koa');
-const Router = require('koa-router');
-const App = new Koa();
+// const Koa = require('koa');
+// const Router = require('koa-router');
+// const App = new Koa();
 // let router = new Router;
 // router.post('/upload', (ctx, next)=>{
 
@@ -15,6 +15,7 @@ const Util = require('util');
 const Fs = require('fs');
 const Path = require('path');
 const SELFCONFIG = require('./config');
+const Formidable = require('formidable');
 
 // 临时存放目录信息
 let catalogTmp = '';
@@ -35,6 +36,25 @@ function calcMD5() {
 
 function fileCheck() {
 
+}
+
+/**
+ * 当nodejs version below 8.0.0 不存在 util.promisify是用
+ * @param fn
+ * @returns {function(...[*]=)}
+ */
+function selfPromisify(fn){
+    return (...args)=>{
+        return new Promise((resolve, reject)=>{
+            fn(...args, (err, data)=>{
+                if(err){
+                    reject(data);
+                } else {
+                    resolve(data);
+                }
+            });
+        });
+    }
 }
 
 function fileW(path, dataInfo, option) {
@@ -61,15 +81,7 @@ function fileR(path, option) {
  */
 function fileOpen(path, flags = 'w+') {
     let tmpPath = Path.resolve(SELFCONFIG.static, path);
-    return new Promise((resolve, reject) => {
-        Fs.open(tmpPath, flags, (err, fs) => {
-            if (!err) {
-                resolve(fs);
-            } else {
-                reject(err);
-            }
-        })
-    })
+    return Util.promisify(Fs.open)(tmpPath, flags);
 }
 
 function findFile(md5) {
@@ -103,10 +115,10 @@ function findFile(md5) {
             return;
         })
         .then((data) => {
-            console.log('start close catalog')
+            console.log('start close catalog');
             Fs.close(fdTmp, (err) => {
                 console.error('close catalog file error', err);
-            })
+            });
             return data;
         })
 }
@@ -156,7 +168,8 @@ function postFn(req, res) {
                     }
                     catalogTmp[params.md5] = {
                         curFile: curFilePath
-                    }
+                    };
+                    let formTmp = new Formidable.IncomingForm();
                     return fileW(curFilePath, post, {encoding : 'binary'});
                 }
             })
@@ -166,7 +179,7 @@ function postFn(req, res) {
                     data: {
                         id: params.md5
                     }
-                }
+                };
                 res.end(JSON.stringify(resData))
             })
             .catch((e) => {
@@ -200,6 +213,10 @@ function srvStart() {
 }
 
 function init() {
+    // 版本的处理
+    if(!Util.promisify){
+        Util.promisify = selfPromisify;
+    }
     // 引入加密库
     try {
         Crypto = require('crypto');
