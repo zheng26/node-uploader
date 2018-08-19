@@ -1,13 +1,3 @@
-// const Koa = require('koa');
-// const Router = require('koa-router');
-// const App = new Koa();
-// let router = new Router;
-// router.post('/upload', (ctx, next)=>{
-
-// })
-// App.use(Router.post(''));
-// App.listen(9993);
-
 const Http = require('http');
 const Url = require('url');
 const QueryString = require('querystring');

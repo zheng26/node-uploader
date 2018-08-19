@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node src/srv.js"
+    "start": "node src/srv.js",
+    "startKoa": "node src/srv-koa.js"
   },
   "repository": {
     "type": "git",
@@ -20,6 +21,8 @@
   "dependencies": {
     "formidable": "^1.2.1",
     "koa": "^2.5.2",
+    "koa-better-body": "^3.0.4",
+    "koa-convert": "^1.2.0",
     "koa-router": "^7.4.0"
   }
 }
